@@ -2,17 +2,16 @@ require("dotenv").config();
 const { onRequest } = require("firebase-functions/v2/https");
 const { setGlobalOptions } = require("firebase-functions/v2");
 const express = require("express");
-const multer = require("multer");
 const nodemailer = require("nodemailer");
+const fileParser = require("express-multipart-file-parser");
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(fileParser);
 
 // Set the maximum instances to 9 for all functions
 setGlobalOptions({ maxInstances: 9 });
-
-const upload = multer({ dest: 'uploads/' });
 
 const responseHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -89,28 +88,32 @@ app.get("/sendmail", async (req, res) => {
   let message = req.query.message;
   let text = `First Name: ${name}\nLast Name: ${lastname}\nEmail: ${email}\nPhone: ${phone}\nServices: ${services}\nMessage: ${message}`;
   let result = await setMessageSend(text);
-  if(result == 200){
-    return res.status(200).send(responseHtml)
-  }else{
-    res.status(203)
+  if (result == 200) {
+    return res.status(200).send(responseHtml);
+  } else {
+    res.status(203);
   }
 });
 
-app.post("/careermail", upload.single('attachment'), async (req, res) => {
-  const name = req.body.name; // use req.body to access form fields
-  const email = req.body.email;
-  const phone = req.body.phone;
+app.post("/careermail", async (req, res) => {
+  try {
+    const name = req.body.name; // use req.body to access form fields
+    const email = req.body.email;
+    const phone = req.body.phone;
+    const file = req.files ? req.files[0] : undefined;
 
-  const file = req.file;
-  if (!file) {
-    return res.status(400).send('No file was uploaded.');
-  }
-  const text = `Name: ${name}\nEmail: ${email}\nPhone: ${phone}`;
-  let result = await sendWithAttachment(text, file);
-  if (result === 200) {
-    return res.status(200).send(responseHtml);
-  } else {
-    res.status(203).send('Error');
+    if (!file) {
+      return res.status(400).send("No file was uploaded.");
+    }
+    const text = `Name: ${name}\nEmail: ${email}\nPhone: ${phone}`;
+    let result = await sendWithAttachment(text, file);
+    if (result === 200) {
+      return res.status(200).send(responseHtml);
+    } else {
+      res.status(203).send("Error");
+    }
+  } catch (e) {
+    console.log("NODE ERROR (/careermail): " + e);
   }
 });
 
@@ -139,42 +142,51 @@ async function setMessageSend(text) {
   return await sendMessage(message);
 }
 
-async function sendWithAttachment(text,file){
-  message = {
-    from: process.env.EMAIL_USERNAME,
-    // Comma separated list of recipients
-    to: process.env.TOMAILID,
+async function sendWithAttachment(text, file) {
+  try {
+    message = {
+      from: process.env.EMAIL_USERNAME,
+      // Comma separated list of recipients
+      to: process.env.TOMAILID,
 
-    // Subject of the message
-    subject: "Joining Request: From website.",
+      // Subject of the message
+      subject: "Joining Request: From website.",
 
-    //plaintext body
-    text: text,
+      //plaintext body
+      text: text,
 
-    //attachments
-    attachments: [
-      {
-        filename: file.originalname,
-        path: file.path
-      }
-    ]
+      //attachments
+      attachments: [
+        {
+          filename: file.originalname,
+          content: file.buffer,
+          encoding: file.encoding,
+        },
+      ],
+    };
+    return await sendMessage(message);
+  } catch (e) {
+    console.log("NODE ERROR (sendWithAttachment): " + e);
+    return 400;
   }
-  return await sendMessage(message);
 }
 
 async function sendMessage(message) {
-  try{let info = await transporter.sendMail(message);
-    if (info.messageId != null){
-      return 200
-    }else{
-      return 203
-    }}catch(e){
-    return 203
+  try {
+    let info = await transporter.sendMail(message);
+    if (info.messageId != null) {
+      return 200;
+    } else {
+      return 203;
+    }
+  } catch (e) {
+    console.log("NODE ERROR (sendMessage): " + e);
+    return 203;
   }
 }
 
-app.listen(3000, () => {
-  console.log("Running at port 3000")
-});
+// app.listen(5234, () => {
+//   console.log("Running at port 5234");
+// });
 
-// exports.app = onRequest(app);
+exports.app = onRequest(app);
